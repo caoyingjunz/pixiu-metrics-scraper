@@ -30,13 +30,29 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func parseTimeRange(whatever string) (time.Time, time.Time) {
+	var startTime, endTime time.Time
+	if whatever != "" {
+		parts := strings.SplitN(whatever, "-", 2)
+		if len(parts) == 2 {
+			layout := "2006-01-02T15:04:05Z"
+			startTime, _ = time.Parse(layout, parts[0])
+			endTime, _ = time.Parse(layout, parts[1])
+		}
+	}
+	return startTime, endTime
+}
+
 func nodeHandler(db *sql.DB) http.HandlerFunc {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
+		startTime, endTime := parseTimeRange(vars["Whatever"])
 
 		resp, err := getNodeMetrics(db, vars["MetricName"], ResourceSelector{
 			Namespace:    "",
 			ResourceName: vars["Name"],
+			StartTime:    startTime,
+			EndTime:      endTime,
 		})
 
 		if err != nil {
@@ -69,10 +85,13 @@ func nodeHandler(db *sql.DB) http.HandlerFunc {
 func podHandler(db *sql.DB) http.HandlerFunc {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
+		startTime, endTime := parseTimeRange(vars["Whatever"])
 
 		resp, err := getPodMetrics(db, vars["MetricName"], ResourceSelector{
 			Namespace:    vars["Namespace"],
 			ResourceName: vars["Name"],
+			StartTime:    startTime,
+			EndTime:      endTime,
 		})
 
 		if err != nil {
@@ -143,14 +162,24 @@ func getRows(db *sql.DB, table string, metricName string, selector ResourceSelec
 		values = append(values, selector.UID)
 	}
 
+	if !selector.StartTime.IsZero() {
+		args = append(args, " time >= ?")
+		values = append(values, selector.StartTime.Format("2006-01-02T15:04:05Z"))
+	}
+
+	if !selector.EndTime.IsZero() {
+		args = append(args, " time <= ?")
+		values = append(values, selector.EndTime.Format("2006-01-02T15:04:05Z"))
+	}
+
 	query = fmt.Sprintf(query+" where "+strings.Join(args, " and ")+" group by name, time order by %v;", table, strings.Join(orderBy, ", "))
 
 	return db.Query(query, values...)
 }
 
 /*
-	getPodMetrics: With a database connection and a resource selector
-	Queries SQLite and returns a list of metrics.
+getPodMetrics: With a database connection and a resource selector
+Queries SQLite and returns a list of metrics.
 */
 func getPodMetrics(db *sql.DB, metricName string, selector ResourceSelector) (SidecarMetricResultList, error) {
 	rows, err := getRows(db, "pods", metricName, selector)
@@ -219,8 +248,8 @@ func getPodMetrics(db *sql.DB, metricName string, selector ResourceSelector) (Si
 }
 
 /*
-	getNodeMetrics: With a database connection and a resource selector
-	Queries SQLite and returns a list of metrics.
+getNodeMetrics: With a database connection and a resource selector
+Queries SQLite and returns a list of metrics.
 */
 func getNodeMetrics(db *sql.DB, metricName string, selector ResourceSelector) (SidecarMetricResultList, error) {
 	resultList := make(map[string]SidecarMetric)

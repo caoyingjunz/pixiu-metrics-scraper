@@ -36,6 +36,10 @@ type ResourceSelector struct {
 	Selector map[string]string
 	// UID is resource unique identifier.
 	UID types.UID
+	// StartTime is the start of the time range filter
+	StartTime time.Time
+	// EndTime is the end of the time range filter
+	EndTime time.Time
 }
 
 // SidecarMetric is a format of data used by our sidecar. This is also the format of data that is being sent by backend API.

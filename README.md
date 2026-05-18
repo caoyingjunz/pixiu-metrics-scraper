@@ -30,3 +30,26 @@ Participation in the Kubernetes community is governed by the [Kubernetes Code of
 
 [owners]: https://git.k8s.io/community/contributors/guide/owners.md
 [Creative Commons 4.0]: https://git.k8s.io/website/LICENSE
+
+
+## 修改内容,增加时间范围筛选
+
+URL 格式：
+
+```
+/namespaces/{Namespace}/pod-list/{Name}/
+metrics/{MetricName}/{StartTime}-{EndTime}
+/nodes/{Name}/metrics/{MetricName}/
+{StartTime}-{EndTime}
+```
+时间格式采用 RFC3339 格式： 2006-01-02T15:04:05Z
+
+示例：
+
+```
+/namespaces/default/pod-list/my-pod/
+metrics/cpu/
+2024-01-01T00:00:00Z-2024-01-02T00:00:00Z
+/nodes/node-1/metrics/memory/
+2024-05-01T10:00:00Z-2024-05-01T12:00:00Z
+```

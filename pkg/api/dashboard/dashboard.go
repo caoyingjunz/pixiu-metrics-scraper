@@ -33,11 +33,13 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 func parseTimeRange(whatever string) (time.Time, time.Time) {
 	var startTime, endTime time.Time
 	if whatever != "" {
-		parts := strings.SplitN(whatever, "-", 2)
-		if len(parts) == 2 {
-			layout := "2006-01-02T15:04:05Z"
-			startTime, _ = time.Parse(layout, parts[0])
-			endTime, _ = time.Parse(layout, parts[1])
+		layout := "2006-01-02T15:04:05Z"
+		timeLen := len(layout)
+		if len(whatever) >= timeLen*2+1 {
+			startStr := whatever[:timeLen]
+			endStr := whatever[timeLen+1:]
+			startTime, _ = time.Parse(layout, startStr)
+			endTime, _ = time.Parse(layout, endStr)
 		}
 	}
 	return startTime, endTime

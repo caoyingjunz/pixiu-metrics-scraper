@@ -53,3 +53,61 @@ metrics/cpu/
 /nodes/node-1/metrics/memory/
 2024-05-01T10:00:00Z-2024-05-01T12:00:00Z
 ```
+
+~/go/src/github.com/154650362/pixiu-metrics-scraper [143] $ echo "=== 测试时间范围过滤（15:30-15:45）===" && curl -s "http://localhost:8080/api/v1/dashboard/nodes/node-1/metrics/cpu/2026-05-18T15:30:00Z-2026-05-18T15:45:00Z" 
+| python3 -m json.tool
+=== 测试时间范围过滤（15:30-15:45）===
+{
+    "items": [
+        {
+            "dataPoints": [],
+            "metricPoints": [
+                {
+                    "timestamp": "2026-05-18T15:31:17Z",
+                    "value": 150
+                },
+                {
+                    "timestamp": "2026-05-18T15:36:17Z",
+                    "value": 300
+                },
+                {
+                    "timestamp": "2026-05-18T15:41:17Z",
+                    "value": 250
+                }
+            ],
+            "metricName": "cpu",
+            "uids": [
+                "node-1"
+            ]
+        }
+    ]
+}
+
+(TraeAI-4) ~/go/src/github.com/154650362/pixiu-metrics-scraper [0] $ echo "=== 测试 pod 的时间范围过滤（15:30-15:45）===" && curl -s "http://localhost:8080/api/v1/dashboard/namespaces/default/pod-list/pod-1/metrics/cpu/2026-05-18T15:30:
+00Z-2026-05-18T15:45:00Z" | python3 -m json.tool
+=== 测试 pod 的时间范围过滤（15:30-15:45）===
+{
+    "items": [
+        {
+            "dataPoints": [],
+            "metricPoints": [
+                {
+                    "timestamp": "2026-05-18T15:31:17Z",
+                    "value": 55
+                },
+                {
+                    "timestamp": "2026-05-18T15:36:17Z",
+                    "value": 70
+                },
+                {
+                    "timestamp": "2026-05-18T15:41:17Z",
+                    "value": 65
+                }
+            ],
+            "metricName": "cpu",
+            "uids": [
+                "pod-1"
+            ]
+        }
+    ]
+}

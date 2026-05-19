@@ -17,8 +17,8 @@ import (
 
 // DashboardRouter defines the usable API routes
 func DashboardRouter(r *mux.Router, db *sql.DB) {
-	r.Path("/nodes/{Name}/metrics/{MetricName}/{Whatever}").HandlerFunc(nodeHandler(db))
-	r.Path("/namespaces/{Namespace}/pod-list/{Name}/metrics/{MetricName}/{Whatever}").HandlerFunc(podHandler(db))
+	r.Path("/nodes/{Name}/metrics/{MetricName}").HandlerFunc(nodeHandler(db))
+	r.Path("/namespaces/{Namespace}/pod-list/{Name}/metrics/{MetricName}").HandlerFunc(podHandler(db))
 	r.PathPrefix("/").HandlerFunc(defaultHandler)
 }
 
@@ -30,25 +30,118 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func parseTimeRange(whatever string) (time.Time, time.Time) {
+func parseTimeRange(r *http.Request) (time.Time, time.Time) {
 	var startTime, endTime time.Time
-	if whatever != "" {
-		layout := "2006-01-02T15:04:05Z"
-		timeLen := len(layout)
-		if len(whatever) >= timeLen*2+1 {
-			startStr := whatever[:timeLen]
-			endStr := whatever[timeLen+1:]
-			startTime, _ = time.Parse(layout, startStr)
-			endTime, _ = time.Parse(layout, endStr)
-		}
+
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+
+	if from != "" {
+		startTime = parseGrafanaTime(from)
 	}
+
+	if to != "" {
+		endTime = parseGrafanaTime(to)
+	}
+
 	return startTime, endTime
+}
+
+func parseGrafanaTime(timeStr string) time.Time {
+	// 尝试解析 Unix timestamp（毫秒）- 仅支持13位毫秒格式
+	if ts, err := strconv.ParseInt(timeStr, 10, 64); err == nil && len(timeStr) == 13 {
+		return time.UnixMilli(ts).UTC()
+	}
+
+	// 尝试解析 RFC3339 格式
+	layout := "2006-01-02T15:04:05Z"
+	if t, err := time.Parse(layout, timeStr); err == nil {
+		return t
+	}
+
+	// 解析 Grafana 相对时间格式
+	return parseRelativeTime(timeStr)
+}
+
+func parseRelativeTime(timeStr string) time.Time {
+	now := time.Now().UTC()
+
+	if timeStr == "now" {
+		return now
+	}
+
+	// 格式: now-5m, now-1h, now-2d, now-3w, now-1M, now-1Y
+	if strings.HasPrefix(timeStr, "now-") {
+		durationStr := timeStr[4:]
+		return parseDurationFromNow(now, durationStr)
+	}
+
+	// 格式: now/w (本周开始), now/M (本月开始), now/Y (本年开始)
+	if strings.HasSuffix(timeStr, "/w") {
+		return startOfWeek(now)
+	}
+	if strings.HasSuffix(timeStr, "/M") {
+		return startOfMonth(now)
+	}
+	if strings.HasSuffix(timeStr, "/Y") {
+		return startOfYear(now)
+	}
+
+	return now
+}
+
+func parseDurationFromNow(now time.Time, durationStr string) time.Time {
+	if durationStr == "" {
+		return now
+	}
+
+	unit := durationStr[len(durationStr)-1]
+	value, err := strconv.Atoi(durationStr[:len(durationStr)-1])
+	if err != nil {
+		return now
+	}
+
+	switch unit {
+	case 's':
+		return now.Add(-time.Duration(value) * time.Second)
+	case 'm':
+		return now.Add(-time.Duration(value) * time.Minute)
+	case 'h':
+		return now.Add(-time.Duration(value) * time.Hour)
+	case 'd':
+		return now.Add(-time.Duration(value) * 24 * time.Hour)
+	case 'w':
+		return now.Add(-time.Duration(value) * 7 * 24 * time.Hour)
+	case 'M':
+		return now.AddDate(0, -value, 0)
+	case 'Y':
+		return now.AddDate(-value, 0, 0)
+	default:
+		return now
+	}
+}
+
+func startOfWeek(t time.Time) time.Time {
+	weekday := t.Weekday()
+	daysToSubtract := int(weekday)
+	if weekday == time.Sunday {
+		daysToSubtract = 7
+	}
+	return time.Date(t.Year(), t.Month(), t.Day()-daysToSubtract, 0, 0, 0, 0, time.UTC)
+}
+
+func startOfMonth(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
+func startOfYear(t time.Time) time.Time {
+	return time.Date(t.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 }
 
 func nodeHandler(db *sql.DB) http.HandlerFunc {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
-		startTime, endTime := parseTimeRange(vars["Whatever"])
+		startTime, endTime := parseTimeRange(r)
 
 		resp, err := getNodeMetrics(db, vars["MetricName"], ResourceSelector{
 			Namespace:    "",
@@ -87,7 +180,7 @@ func nodeHandler(db *sql.DB) http.HandlerFunc {
 func podHandler(db *sql.DB) http.HandlerFunc {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
-		startTime, endTime := parseTimeRange(vars["Whatever"])
+		startTime, endTime := parseTimeRange(r)
 
 		resp, err := getPodMetrics(db, vars["MetricName"], ResourceSelector{
 			Namespace:    vars["Namespace"],

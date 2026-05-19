@@ -1,4 +1,4 @@
-package example
+package main
 
 import (
 	"database/sql"
@@ -16,7 +16,7 @@ import (
 	sidedb "github.com/kubernetes-sigs/dashboard-metrics-scraper/pkg/database"
 )
 
-func test() {
+func main() {
 	dbFile := "/tmp/test_metrics.db"
 
 	// 删除旧的测试数据库

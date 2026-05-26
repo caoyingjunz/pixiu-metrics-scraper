@@ -1,0 +1,25 @@
+# Configuration file for pixiu-metrics-scraper
+# Usage: ./server -c config.yaml
+
+database:
+  # Database type: "sqlite3" or "mysql"
+  type: "mysql"
+
+  # SQLite configuration (used when type is "sqlite3")
+  sqlite3:
+    db-file: "/tmp/metrics.db"
+
+  # MySQL configuration (used when type is "mysql")
+  mysql:
+    username: "root"
+    password: "password"
+    host: "localhost"
+    port: "3306"
+    database: "metrics_db"
+    charset: "utf8mb4"
+    max-open-conns: 25
+    max-idle-conns: 10
+
+server:
+  # Server listen address
+  address: ":8000"

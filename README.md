@@ -32,3 +32,29 @@ Participation in the Kubernetes community is governed by the [Kubernetes Code of
 [Creative Commons 4.0]: https://git.k8s.io/website/LICENSE
 
 
+
+### 扩展性
+
+只需实现 `DatabaseBackend` 接口并在 `BackendFactory()` 中添加新的数据库后端：
+
+```go
+type PostgreSQLBackend struct{}
+
+func (p *PostgreSQLBackend) CreateDatabase(db *sql.DB) error {
+    // 实现...
+}
+
+func (p *PostgreSQLBackend) UpdateDatabase(db *sql.DB, ...) error {
+    // 实现...
+}
+
+func (p *PostgreSQLBackend) CullDatabase(db *sql.DB, ...) error {
+    // 实现...
+}
+
+// 在 BackendFactory 中添加
+case "postgres":
+    return &PostgreSQLBackend{}
+```
+
+

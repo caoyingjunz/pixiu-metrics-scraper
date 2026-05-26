@@ -10,9 +10,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
 
 	sideapi "github.com/kubernetes-sigs/dashboard-metrics-scraper/pkg/api"
+	sidecfg "github.com/kubernetes-sigs/dashboard-metrics-scraper/pkg/config"
 	sidedb "github.com/kubernetes-sigs/dashboard-metrics-scraper/pkg/database"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +28,7 @@ import (
 
 func main() {
 	var kubeconfig *string
-	var dbFile *string
+	var configFile *string
 	var metricResolution *time.Duration
 	var metricDuration *time.Duration
 	var logLevel *string
@@ -43,7 +45,7 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 
 	kubeconfig = flag.String("kubeconfig", "", "The path to the kubeconfig used to connect to the Kubernetes API server and the Kubelets (defaults to in-cluster config)")
-	dbFile = flag.String("db-file", "/tmp/metrics.db", "What file to use as a SQLite3 database.")
+	configFile = flag.StringP("config", "c", "", "Path to the YAML configuration file. If not provided, defaults to SQLite.")
 	metricResolution = flag.Duration("metric-resolution", 1*time.Minute, "The resolution at which dashboard-metrics-scraper will poll metrics.")
 	metricDuration = flag.Duration("metric-duration", 15*time.Minute, "The duration after which metrics are purged from the database.")
 	logLevel = flag.String("log-level", "info", "The log level")
@@ -64,6 +66,19 @@ func main() {
 		log.SetLevel(level)
 	}
 
+	// Load configuration file if provided
+	var cfg *sidecfg.Config
+	if *configFile != "" {
+		cfg, err = sidecfg.LoadConfig(*configFile)
+		if err != nil {
+			log.Fatalf("Unable to load config file: %s", err)
+		}
+		log.Infof("Loaded configuration from: %s", *configFile)
+	} else {
+		cfg = sidecfg.DefaultConfig()
+		log.Info("Using default SQLite configuration")
+	}
+
 	// This should only be run in-cluster so...
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
@@ -79,15 +94,62 @@ func main() {
 		log.Fatalf("Unable to generate a clientset: %s", err)
 	}
 
-	// Create the db "connection"
-	db, err := sql.Open("sqlite3", *dbFile)
-	if err != nil {
-		log.Fatalf("Unable to open Sqlite database: %s", err)
+	// Create database connection based on configuration
+	var db *sql.DB
+	var backend sidedb.DatabaseBackend
+
+	switch cfg.Database.Type {
+	case "mysql":
+		log.Infof("Using MySQL database: %s:%s/%s",
+			cfg.Database.MySQL.Host,
+			cfg.Database.MySQL.Port,
+			cfg.Database.MySQL.Database)
+
+		db, err = sql.Open("mysql", cfg.Database.MySQL.GetDSN())
+		if err != nil {
+			log.Fatalf("Unable to open MySQL database: %s", err)
+		}
+
+		// Configure connection pool
+		if cfg.Database.MySQL.MaxOpenConns > 0 {
+			db.SetMaxOpenConns(cfg.Database.MySQL.MaxOpenConns)
+		}
+		if cfg.Database.MySQL.MaxIdleConns > 0 {
+			db.SetMaxIdleConns(cfg.Database.MySQL.MaxIdleConns)
+		}
+		db.SetConnMaxLifetime(5 * time.Minute)
+
+		// Test connection
+		if err := db.Ping(); err != nil {
+			log.Fatalf("Unable to ping MySQL database: %s", err)
+		}
+
+		backend = sidedb.BackendFactory("mysql")
+
+	case "sqlite3":
+		log.Infof("Using SQLite database: %s", cfg.Database.SQLite3.DBFile)
+
+		db, err = sql.Open("sqlite3", cfg.Database.SQLite3.DBFile)
+		if err != nil {
+			log.Fatalf("Unable to open SQLite database: %s", err)
+		}
+
+		backend = sidedb.BackendFactory("sqlite3")
+
+	default:
+		log.Warnf("Unknown database type '%s', defaulting to SQLite", cfg.Database.Type)
+
+		db, err = sql.Open("sqlite3", cfg.Database.SQLite3.DBFile)
+		if err != nil {
+			log.Fatalf("Unable to open SQLite database: %s", err)
+		}
+
+		backend = sidedb.BackendFactory("sqlite3")
 	}
+
 	defer db.Close()
 
-	// Populate tables
-	err = sidedb.CreateDatabase(db)
+	err = backend.CreateDatabase(db)
 	if err != nil {
 		log.Fatalf("Unable to initialize database tables: %s", err)
 	}
@@ -96,11 +158,14 @@ func main() {
 		r := mux.NewRouter()
 
 		sideapi.Manager(r, db)
-		// Bind to a port and pass our router in
-		log.Fatal(http.ListenAndServe(":8000", handlers.CombinedLoggingHandler(os.Stdout, r)))
+		addr := cfg.Server.Address
+		if addr == "" {
+			addr = ":8000"
+		}
+		log.Infof("Starting server on %s", addr)
+		log.Fatal(http.ListenAndServe(addr, handlers.CombinedLoggingHandler(os.Stdout, r)))
 	}()
 
-	// Start the machine. Scrape every metricResolution
 	ticker := time.NewTicker(*metricResolution)
 	quit := make(chan struct{})
 
@@ -111,7 +176,7 @@ func main() {
 			return
 
 		case <-ticker.C:
-			err = update(clientset, db, metricDuration, metricNamespace)
+			err = update(clientset, db, backend, metricDuration, metricNamespace)
 			if err != nil {
 				break
 			}
@@ -122,7 +187,7 @@ func main() {
 /**
 * Update the Node and Pod metrics in the provided DB
  */
-func update(client *metricsclient.Clientset, db *sql.DB, metricDuration *time.Duration, metricNamespace *[]string) error {
+func update(client *metricsclient.Clientset, db *sql.DB, backend sidedb.DatabaseBackend, metricDuration *time.Duration, metricNamespace *[]string) error {
 	nodeMetrics := &v1beta1.NodeMetricsList{}
 	podMetrics := &v1beta1.PodMetricsList{}
 	ctx := context.TODO()
@@ -150,15 +215,15 @@ func update(client *metricsclient.Clientset, db *sql.DB, metricDuration *time.Du
 		podMetrics.Items = append(podMetrics.Items, pod.Items...)
 	}
 
-	// Insert scrapes into DB
-	err = sidedb.UpdateDatabase(db, nodeMetrics, podMetrics)
+	// Insert scrapes into DB using the appropriate backend
+	err = backend.UpdateDatabase(db, nodeMetrics, podMetrics)
 	if err != nil {
 		log.Errorf("Error updating database: %s", err)
 		return err
 	}
 
 	// Delete rows outside of the metricDuration time
-	err = sidedb.CullDatabase(db, metricDuration)
+	err = backend.CullDatabase(db, metricDuration)
 	if err != nil {
 		log.Errorf("Error culling database: %s", err)
 		return err

@@ -19,23 +19,19 @@ import (
 func main() {
 	dbFile := "/tmp/test_metrics.db"
 
-	// 删除旧的测试数据库
 	os.Remove(dbFile)
 
-	// 创建数据库连接
 	db, err := sql.Open("sqlite3", dbFile)
 	if err != nil {
 		log.Fatalf("Unable to open Sqlite database: %s", err)
 	}
 	defer db.Close()
 
-	// 初始化数据库表
 	err = sidedb.CreateDatabase(db)
 	if err != nil {
 		log.Fatalf("Unable to initialize database tables: %s", err)
 	}
 
-	// 插入测试数据
 	err = insertTestData(db)
 	if err != nil {
 		log.Fatalf("Unable to insert test data: %s", err)
@@ -54,7 +50,6 @@ func main() {
 func insertTestData(db *sql.DB) error {
 	now := time.Now().UTC()
 
-	// 插入 node 测试数据（不同时间点）
 	nodeData := []struct {
 		uid    string
 		name   string
@@ -86,7 +81,6 @@ func insertTestData(db *sql.DB) error {
 		}
 	}
 
-	// 插入 pod 测试数据（不同时间点）
 	podData := []struct {
 		uid       string
 		namespace string

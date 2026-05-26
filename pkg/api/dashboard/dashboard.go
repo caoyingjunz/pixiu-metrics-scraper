@@ -274,7 +274,7 @@ func getRows(db *sql.DB, table string, metricName string, selector ResourceSelec
 
 /*
 getPodMetrics: With a database connection and a resource selector
-Queries SQLite and returns a list of metrics.
+Queries the database (SQLite/MySQL) and returns a list of pod metrics.
 */
 func getPodMetrics(db *sql.DB, metricName string, selector ResourceSelector) (SidecarMetricResultList, error) {
 	rows, err := getRows(db, "pods", metricName, selector)
@@ -344,7 +344,7 @@ func getPodMetrics(db *sql.DB, metricName string, selector ResourceSelector) (Si
 
 /*
 getNodeMetrics: With a database connection and a resource selector
-Queries SQLite and returns a list of metrics.
+Queries the database (SQLite/MySQL) and returns a list of node metrics.
 */
 func getNodeMetrics(db *sql.DB, metricName string, selector ResourceSelector) (SidecarMetricResultList, error) {
 	resultList := make(map[string]SidecarMetric)
